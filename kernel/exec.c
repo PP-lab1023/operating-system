@@ -116,6 +116,14 @@ exec(char *path, char **argv)
   p->trapframe->sp = sp; // initial stack pointer
   proc_freepagetable(oldpagetable, oldsz);
 
+  if(p->pid==1){
+    vmprint(p->pagetable);
+  }
+  
+  //New added: copy to kernel address table
+  if(copy_proc_kernel(p->pagetable, p->kernel_pt, 0, sz) < 0)
+    goto bad;
+  
   return argc; // this ends up in a0, the first argument to main(argc, argv)
 
  bad:
