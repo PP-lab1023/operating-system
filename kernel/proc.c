@@ -113,10 +113,17 @@ found:
     return 0;
   }
 
+
   // An empty user page table.
   p->pagetable = proc_pagetable(p);
   if(p->pagetable == 0){
     freeproc(p);
+    release(&p->lock);
+    return 0;
+  }
+
+  //New added
+  if((p->copy = (struct trapframe *)kalloc()) == 0){
     release(&p->lock);
     return 0;
   }
@@ -127,26 +134,14 @@ found:
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
 
+  //New added
+  p->passed = 0;
+  p->func = 0;
+  p->interval = 0;
+  p->flag = 0;
+
+
   return p;
-}
-
-
-extern char etext[];
-
-void
-free_kernel_pt(pagetable_t pagetable){
-  // there are 2^9 = 512 PTEs in a page table.
-  for(int i = 0; i < 512; i++){
-    pte_t pte = pagetable[i];
-    if((pte & PTE_V) && (pte & (PTE_R|PTE_W|PTE_X)) == 0){
-      // this PTE points to a lower-level page table.
-      uint64 child = PTE2PA(pte);
-      free_kernel_pt((pagetable_t)child);
-      pagetable[i] = 0;
-    }
-    pagetable[i] = 0;
-  }
-  kfree((void*)pagetable);
 }
 
 // free a proc structure and the data hanging from it,
@@ -158,10 +153,10 @@ freeproc(struct proc *p)
   if(p->trapframe)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
+  
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
   p->pagetable = 0;
-
   p->sz = 0;
   p->pid = 0;
   p->parent = 0;
@@ -170,6 +165,14 @@ freeproc(struct proc *p)
   p->killed = 0;
   p->xstate = 0;
   p->state = UNUSED;
+
+  //New added:
+  p->passed = 0;
+  p->func = 0;
+  p->interval = 0;
+  p->flag = 0;
+  if(p->copy)
+    kfree((void*)p->copy);
 }
 
 // Create a user page table for a given process,
@@ -250,7 +253,6 @@ userinit(void)
 
   p->state = RUNNABLE;
 
-
   release(&p->lock);
 }
 
@@ -270,9 +272,7 @@ growproc(int n)
   } else if(n < 0){
     sz = uvmdealloc(p->pagetable, sz, sz + n);
   }
-
   p->sz = sz;
-
   return 0;
 }
 
@@ -496,21 +496,13 @@ scheduler(void)
         // before jumping back to us.
         p->state = RUNNING;
         c->proc = p;
-
-        
-
         swtch(&c->context, &p->context);
-
-       
 
         // Process is done running for now.
         // It should have changed its p->state before coming back.
         c->proc = 0;
 
         found = 1;
-
-        
-
       }
       release(&p->lock);
     }

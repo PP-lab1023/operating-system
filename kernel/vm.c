@@ -121,15 +121,6 @@ kvmmap(uint64 va, uint64 pa, uint64 sz, int perm)
     panic("kvmmap");
 }
 
-// New added: add a mapping to the process's kernel page table.
-// does not flush TLB or enable paging.
-void
-ukvmmap(pagetable_t pt, uint64 va, uint64 pa, uint64 sz, int perm)
-{
-  if(mappages(pt, va, sz, pa, perm) != 0)
-    panic("ukvmmap");
-}
-
 // translate a kernel virtual address to
 // a physical address. only needed for
 // addresses on the stack.
@@ -191,11 +182,8 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
   for(a = va; a < va + npages*PGSIZE; a += PGSIZE){
     if((pte = walk(pagetable, a, 0)) == 0)
       panic("uvmunmap: walk");
-    if((*pte & PTE_V) == 0){
-      printf("%p\n", va);
+    if((*pte & PTE_V) == 0)
       panic("uvmunmap: not mapped");
-    }
-      
     if(PTE_FLAGS(*pte) == PTE_V)
       panic("uvmunmap: not a leaf");
     if(do_free){
@@ -289,10 +277,8 @@ freewalk(pagetable_t pagetable)
   // there are 2^9 = 512 PTEs in a page table.
   for(int i = 0; i < 512; i++){
     pte_t pte = pagetable[i];
-    
     if((pte & PTE_V) && (pte & (PTE_R|PTE_W|PTE_X)) == 0){
-      
-      // this PTE points to a lower-level page table.    
+      // this PTE points to a lower-level page table.
       uint64 child = PTE2PA(pte);
       freewalk((pagetable_t)child);
       pagetable[i] = 0;
@@ -393,24 +379,23 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 int
 copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 {
-  //uint64 n, va0, pa0;
+  uint64 n, va0, pa0;
 
-  //while(len > 0){
-    //va0 = PGROUNDDOWN(srcva);
-    //pa0 = walkaddr(pagetable, va0);
-    //if(pa0 == 0)
-      //return -1;
-    //n = PGSIZE - (srcva - va0);
-    //if(n > len)
-      //n = len;
-    //memmove(dst, (void *)(pa0 + (srcva - va0)), n);
+  while(len > 0){
+    va0 = PGROUNDDOWN(srcva);
+    pa0 = walkaddr(pagetable, va0);
+    if(pa0 == 0)
+      return -1;
+    n = PGSIZE - (srcva - va0);
+    if(n > len)
+      n = len;
+    memmove(dst, (void *)(pa0 + (srcva - va0)), n);
 
-    //len -= n;
-    //dst += n;
-    //srcva = va0 + PGSIZE;
-  //}
-  //return 0;
-  return copyin_new(pagetable, dst, srcva, len);
+    len -= n;
+    dst += n;
+    srcva = va0 + PGSIZE;
+  }
+  return 0;
 }
 
 // Copy a null-terminated string from user to kernel.
@@ -455,4 +440,3 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
     return -1;
   }
 }
-
