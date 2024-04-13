@@ -21,22 +21,35 @@ struct run {
 struct {
   struct spinlock lock;
   struct run *freelist;
-} kmem;
+} kmem[NCPU];
 
 void
 kinit()
 {
-  initlock(&kmem.lock, "kmem");
+  for(int i = 0; i < NCPU; ++i){
+    char name[6] = {0};
+    snprintf(name, 6, "kmem%d", i);
+    initlock(&kmem[i].lock, name);
+  }
   freerange(end, (void*)PHYSTOP);
 }
 
 void
 freerange(void *pa_start, void *pa_end)
 {
-  char *p;
+  char *p, *q;
   p = (char*)PGROUNDUP((uint64)pa_start);
-  for(; p + PGSIZE <= (char*)pa_end; p += PGSIZE)
-    kfree(p);
+  q = p;
+
+  uint64 per_block = ((uint64)pa_end - (uint64)pa_start) / NCPU;
+
+  for(int i = 0; i < NCPU; i++){
+    for(; q < p + per_block; q += PGSIZE){
+      kfree(p);
+    }
+    p = q;
+  }
+    
 }
 
 // Free the page of physical memory pointed at by v,
