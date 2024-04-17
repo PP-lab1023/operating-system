@@ -16,6 +16,8 @@
 #include "file.h"
 #include "fcntl.h"
 
+static struct inode* create(char *, short , short , short);
+
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
 static int
@@ -76,6 +78,37 @@ sys_read(void)
   if(argfd(0, 0, &f) < 0 || argint(2, &n) < 0 || argaddr(1, &p) < 0)
     return -1;
   return fileread(f, p, n);
+}
+
+//New added
+uint64
+sys_symlink(void)
+{
+  char target[MAXPATH], path[MAXPATH];
+  struct inode *ip;
+
+  if(argstr(0, target, MAXPATH) < 0 || argstr(1, path, MAXPATH) < 0)
+    return -1;
+
+  begin_op(); 
+  if((ip = namei(path)) == 0){
+    ip = create(path, T_SYMLINK, 0, 0);
+    if(ip == 0){
+      end_op();
+      return -1;
+    }
+    iunlock(ip);
+  }
+
+  ilock(ip);
+  if(writei(ip, 0, (uint64)target, ip->size, MAXPATH) != MAXPATH){
+    end_op();
+    return -1;
+  }
+  iunlockput(ip);
+
+  end_op();
+  return 0;
 }
 
 uint64
@@ -313,6 +346,32 @@ sys_open(void)
       iunlockput(ip);
       end_op();
       return -1;
+    }
+  }
+
+  //New added
+  if(ip->type == T_SYMLINK){
+    if((omode & O_NOFOLLOW) == 0){
+      //can follow
+      int count = 0;
+      char sympath[MAXPATH];
+      while(1){
+        if(count > 10 || readi(ip, 0, (uint64)sympath, 0, MAXPATH) != MAXPATH){
+          iunlockput(ip);
+          end_op();
+          return -1;
+        }
+        iunlockput(ip);
+        if((ip = namei(sympath)) == 0){
+          end_op();
+          return -1;
+        }
+        ilock(ip);
+        if(ip->type != T_SYMLINK){
+          break;
+        }
+        ++count;
+      }
     }
   }
 
